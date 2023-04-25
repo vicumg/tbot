@@ -1,7 +1,8 @@
 package telegram
 
 import (
-	"fmt"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -15,6 +16,10 @@ type Client struct {
 	client   http.Client
 }
 
+const (
+	getUpdatesMethod = "getUpdates"
+)
+
 func New(host string, token string) Client {
 	return Client{
 		host:     host,
@@ -27,37 +32,69 @@ func newBathPath(token string) string {
 	return "bot" + token
 }
 
-func (c *Client) Updates(offset int, limit int) ([]Update, err){
+func (c *Client) Updates(offset int, limit int) (updates []Update, err error) {
+	defer func() {
+		err = reqerr.WrapIfErr("cant do request", err)
+	}()
+
 	q := url.Values{}
 	q.Add("offset", strconv.Itoa(offset))
 	q.Add("limit", strconv.Itoa(limit))
-	
+
+	data, err := c.doRequest(getUpdatesMethod, q)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var res UpdatesResponse
+
+	if err := json.Unmarshal(data, &res); err != nil {
+		return nil, err
+	}
+
+	return res.Result, nil
 }
 
-func (c *Client) doRequest(method string, query url.Values) ([]byte, err){
+func (c *Client) doRequest(method string, query url.Values) (data []byte, err error) {
 
-	const errMsg := "cant do request"
+	defer func() {
+		err = reqerr.WrapIfErr("cant do request", err)
+	}()
+
+	const errMsg = "cant do request"
 
 	u := url.URL{
 		Scheme: "https",
-		Host: c.host,
-		Path: path.Join(c.basepath , method),
+		Host:   c.host,
+		Path:   path.Join(c.basepath, method),
 	}
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil) 
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 
 	if err != nil {
-		return nil, reqerr.Wrap(errMsg, err)
+		return nil, err
 	}
 
-	req.URL.RawQuery := query.Encode()
+	req.URL.RawQuery = query.Encode()
 
-	resp, err = c.client.Do(req)
+	resp, err := c.client.Do(req)
 
-	if err != nil{
-		return nil, reqerr.Wrap(errMsg, err)
+	if err != nil {
+		return nil, err
 	}
 
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
 }
 
 func (c *Client) SendMessages() {
