@@ -21,6 +21,7 @@ type Page struct {
 
 func (p Page) Hash() (string, error) {
 	h := sha1.New()
+	
 	if _, err := io.WriteString(h, p.URL); err != nil {
 		return "", reqerr.Wrap("cant calculate hash", err)
 	}
